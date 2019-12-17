@@ -101,6 +101,7 @@ void CheckShiftChar(ui::KeyboardCode key_code, char character, char lower) {
 }  // namespace
 
 TEST(KeyConverter, SingleChar) {
+  ui::ScopedKeyboardLayout keyboard_layout(ui::KEYBOARD_LAYOUT_ENGLISH_US);
   KeyEventBuilder builder;
   std::list<KeyEvent> key_events;
   builder.SetText("h", "h")->SetKeyCode(ui::VKEY_H)->Generate(&key_events);
@@ -108,6 +109,7 @@ TEST(KeyConverter, SingleChar) {
 }
 
 TEST(KeyConverter, SingleNumber) {
+  ui::ScopedKeyboardLayout keyboard_layout(ui::KEYBOARD_LAYOUT_ENGLISH_US);
   KeyEventBuilder builder;
   std::list<KeyEvent> key_events;
   builder.SetText("1", "1")->SetKeyCode(ui::VKEY_1)->Generate(&key_events);
@@ -115,6 +117,7 @@ TEST(KeyConverter, SingleNumber) {
 }
 
 TEST(KeyConverter, MultipleChars) {
+  ui::ScopedKeyboardLayout keyboard_layout(ui::KEYBOARD_LAYOUT_ENGLISH_US);
   KeyEventBuilder builder;
   std::list<KeyEvent> key_events;
   builder.SetText("h", "h")->SetKeyCode(ui::VKEY_H)->Generate(&key_events);
@@ -124,6 +127,7 @@ TEST(KeyConverter, MultipleChars) {
 }
 
 TEST(KeyConverter, WebDriverSpecialChar) {
+  ui::ScopedKeyboardLayout keyboard_layout(ui::KEYBOARD_LAYOUT_ENGLISH_US);
   KeyEventBuilder builder;
   std::list<KeyEvent> key_events;
   builder.SetKeyCode(ui::VKEY_SPACE)->SetText(" ", " ")->Generate(&key_events);
@@ -142,6 +146,7 @@ TEST(KeyConverter, WebDriverSpecialNonCharKey) {
 }
 
 TEST(KeyConverter, FrenchKeyOnEnglishLayout) {
+  ui::ScopedKeyboardLayout keyboard_layout(ui::KEYBOARD_LAYOUT_ENGLISH_US);
   KeyEventBuilder builder;
   std::string e_acute = base::WideToUTF8(L"\u00E9");
   std::list<KeyEvent> key_events;
@@ -175,6 +180,7 @@ TEST(KeyConverter, NeedsCtrlAndAlt) {
 #endif
 
 TEST(KeyConverter, UppercaseCharDoesShift) {
+  ui::ScopedKeyboardLayout keyboard_layout(ui::KEYBOARD_LAYOUT_ENGLISH_US);
   KeyEventBuilder shift_builder;
   shift_builder.SetKeyCode(ui::VKEY_SHIFT);
   KeyEventBuilder a_builder;
@@ -189,6 +195,7 @@ TEST(KeyConverter, UppercaseCharDoesShift) {
 }
 
 TEST(KeyConverter, UppercaseSymbolCharDoesShift) {
+  ui::ScopedKeyboardLayout keyboard_layout(ui::KEYBOARD_LAYOUT_ENGLISH_US);
   KeyEventBuilder shift_builder;
   shift_builder.SetKeyCode(ui::VKEY_SHIFT);
   KeyEventBuilder one_builder;
@@ -203,6 +210,7 @@ TEST(KeyConverter, UppercaseSymbolCharDoesShift) {
 }
 
 TEST(KeyConverter, UppercaseCharUsesShiftOnlyIfNecessary) {
+  ui::ScopedKeyboardLayout keyboard_layout(ui::KEYBOARD_LAYOUT_ENGLISH_US);
   std::list<KeyEvent> key_events;
   KeyEventBuilder shift_builder;
   key_events.push_back(shift_builder.SetType(kRawKeyDownEventType)
@@ -261,14 +269,8 @@ TEST(KeyConverter, ToggleModifiers) {
   CheckEventsReleaseModifiers(keys, key_events);
 }
 
-#if defined(OS_WIN)
-// https://code.google.com/p/chromedriver/issues/detail?id=546
-#define MAYBE_AllShorthandKeys DISABLED_AllShorthandKeys
-#else
-#define MAYBE_AllShorthandKeys AllShorthandKeys
-#endif
-
-TEST(KeyConverter, MAYBE_AllShorthandKeys) {
+TEST(KeyConverter, AllShorthandKeys) {
+  ui::ScopedKeyboardLayout keyboard_layout(ui::KEYBOARD_LAYOUT_ENGLISH_US);
   KeyEventBuilder builder;
   std::list<KeyEvent> key_events;
   builder.SetKeyCode(ui::VKEY_RETURN)
@@ -276,7 +278,7 @@ TEST(KeyConverter, MAYBE_AllShorthandKeys) {
       ->Generate(&key_events);
   builder.Generate(&key_events);
   builder.SetKeyCode(ui::VKEY_TAB);
-#if defined(USE_AURA) || defined(OS_LINUX)
+#if defined(OS_LINUX)
   builder.SetText("\t", "\t")->Generate(&key_events);
 #else
   builder.SetText(std::string(), std::string());
@@ -284,7 +286,7 @@ TEST(KeyConverter, MAYBE_AllShorthandKeys) {
   key_events.push_back(builder.SetType(kKeyUpEventType)->Build());
 #endif
   builder.SetKeyCode(ui::VKEY_BACK);
-#if defined(USE_AURA) || defined(OS_LINUX)
+#if defined(OS_LINUX)
   builder.SetText("\b", "\b")->Generate(&key_events);
 #else
   builder.SetText(std::string(), std::string());
@@ -326,6 +328,7 @@ TEST(KeyConverter, MAYBE_AllEnglishKeyboardSymbols) {
 }
 
 TEST(KeyConverter, AllEnglishKeyboardTextChars) {
+  ui::ScopedKeyboardLayout keyboard_layout(ui::KEYBOARD_LAYOUT_ENGLISH_US);
   std::string kLowerChars = "0123456789abcdefghijklmnopqrstuvwxyz";
   std::string kUpperChars = ")!@#$%^&*(ABCDEFGHIJKLMNOPQRSTUVWXYZ";
   for (size_t i = 0; i < kLowerChars.length(); ++i) {
@@ -348,25 +351,15 @@ TEST(KeyConverter, AllEnglishKeyboardTextChars) {
   }
 }
 
-#if defined(OS_LINUX) || defined(OS_WIN)
-// https://code.google.com/p/chromedriver/issues/detail?id=240
-// https://code.google.com/p/chromedriver/issues/detail?id=546
-#define MAYBE_AllSpecialWebDriverKeysOnEnglishKeyboard \
-    DISABLED_AllSpecialWebDriverKeysOnEnglishKeyboard
-#else
-#define MAYBE_AllSpecialWebDriverKeysOnEnglishKeyboard \
-    AllSpecialWebDriverKeysOnEnglishKeyboard
-#endif
-
-TEST(KeyConverter, MAYBE_AllSpecialWebDriverKeysOnEnglishKeyboard) {
+TEST(KeyConverter, AllSpecialWebDriverKeysOnEnglishKeyboard) {
+  ui::ScopedKeyboardLayout keyboard_layout(ui::KEYBOARD_LAYOUT_ENGLISH_US);
   const char kTextForKeys[] = {
-#if defined(USE_AURA) || defined(OS_LINUX)
-      0, 0, 0, '\b', '\t', 0, '\r', '\r', 0, 0, 0, 0, 0x1B,
-      ' ', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x7F, ';', '=',
+#if defined(OS_LINUX)
+      0, 0, 0, 0, '\t', 0, '\r', '\r', 0, 0, 0, 0, 0,
 #else
       0, 0, 0, 0, 0, 0, '\r', '\r', 0, 0, 0, 0, 0,
-      ' ', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ';', '=',
 #endif
+      ' ', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ';', '=',
       '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
       '*', '+', ',', '-', '.', '/'};
   for (size_t i = 0; i <= 0x3D; ++i) {
@@ -376,29 +369,21 @@ TEST(KeyConverter, MAYBE_AllSpecialWebDriverKeysOnEnglishKeyboard) {
     int modifiers = 0;
     keys.push_back(0xE000U + i);
     std::list<KeyEvent> events;
-    if (i == 1) {
-      EXPECT_NE(kOk, ConvertKeysToKeyEvents(keys,
-                                            true /* release_modifiers*/,
-                                            &modifiers, &events).code())
-          << "Index: " << i;
+    EXPECT_EQ(kOk, ConvertKeysToKeyEvents(keys,
+                                          true /* release_modifiers */,
+                                          &modifiers, &events).code())
+        << "Index: " << i;
+    if (i == 0) {
       EXPECT_EQ(0u, events.size()) << "Index: " << i;
+    } else if (i >= base::size(kTextForKeys) || kTextForKeys[i] == 0) {
+      EXPECT_EQ(2u, events.size()) << "Index: " << i;
     } else {
-      EXPECT_EQ(kOk, ConvertKeysToKeyEvents(keys,
-                                            true /* release_modifiers */,
-                                            &modifiers, &events).code())
+      ASSERT_EQ(3u, events.size()) << "Index: " << i;
+      std::list<KeyEvent>::const_iterator it = events.begin();
+      ++it;  // Move to the second event.
+      ASSERT_EQ(1u, it->unmodified_text.length()) << "Index: " << i;
+      EXPECT_EQ(kTextForKeys[i], it->unmodified_text[0])
           << "Index: " << i;
-      if (i == 0) {
-        EXPECT_EQ(0u, events.size()) << "Index: " << i;
-      } else if (i >= base::size(kTextForKeys) || kTextForKeys[i] == 0) {
-        EXPECT_EQ(2u, events.size()) << "Index: " << i;
-      } else {
-        ASSERT_EQ(3u, events.size()) << "Index: " << i;
-        std::list<KeyEvent>::const_iterator it = events.begin();
-        ++it;  // Move to the second event.
-        ASSERT_EQ(1u, it->unmodified_text.length()) << "Index: " << i;
-        EXPECT_EQ(kTextForKeys[i], it->unmodified_text[0])
-            << "Index: " << i;
-      }
     }
   }
 }

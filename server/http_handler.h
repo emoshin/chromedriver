@@ -61,6 +61,9 @@ struct CommandMapping {
   Command command;
 };
 
+extern const char kCreateWebSocketPath[];
+extern const char kSendCommandFromWebSocket[];
+
 typedef base::Callback<void(std::unique_ptr<net::HttpServerResponseInfo>)>
     HttpResponseSenderFunc;
 
@@ -82,6 +85,7 @@ class HttpHandler {
   FRIEND_TEST_ALL_PREFIXES(HttpHandlerTest, HandleInvalidPost);
   FRIEND_TEST_ALL_PREFIXES(HttpHandlerTest, HandleUnimplementedCommand);
   FRIEND_TEST_ALL_PREFIXES(HttpHandlerTest, HandleCommand);
+  FRIEND_TEST_ALL_PREFIXES(HttpHandlerTest, StandardResponse_ErrorNoMessage);
   typedef std::vector<CommandMapping> CommandMap;
 
   Command WrapToCommand(const char* name,
@@ -128,7 +132,7 @@ class HttpHandler {
   std::unique_ptr<Adb> adb_;
   std::unique_ptr<DeviceManager> device_manager_;
 
-  base::WeakPtrFactory<HttpHandler> weak_ptr_factory_;
+  base::WeakPtrFactory<HttpHandler> weak_ptr_factory_{this};
 
   DISALLOW_COPY_AND_ASSIGN(HttpHandler);
 };

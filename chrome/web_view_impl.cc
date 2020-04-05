@@ -179,7 +179,7 @@ WebViewImpl::WebViewImpl(const std::string& id,
       heap_snapshot_taker_(new HeapSnapshotTaker(client_.get())),
       debugger_(new DebuggerTracker(client_.get())) {
   // Downloading in headless mode requires the setting of
-  // Page.setDownloadBehavior. This is handled by the
+  // Browser.setDownloadBehavior. This is handled by the
   // DownloadDirectoryOverrideManager, which is only instantiated
   // in headless chrome.
   if (browser_info->is_headless)
@@ -775,9 +775,9 @@ Status WebViewImpl::WaitForPendingNavigations(const std::string& frame_id,
     return Status(kUnsupportedOperation,
                   "Call WaitForPendingNavigations only on the parent WebView");
   VLOG(0) << "Waiting for pending navigations...";
-  const auto not_pending_navigation =
-      base::Bind(&WebViewImpl::IsNotPendingNavigation, base::Unretained(this),
-                 frame_id, base::Unretained(&timeout));
+  const auto not_pending_navigation = base::BindRepeating(
+      &WebViewImpl::IsNotPendingNavigation, base::Unretained(this), frame_id,
+      base::Unretained(&timeout));
   Status status = client_->HandleEventsUntil(not_pending_navigation, timeout);
   if (status.code() == kTimeout && stop_load_on_timeout) {
     VLOG(0) << "Timed out. Stopping navigation...";
@@ -972,23 +972,7 @@ Status WebViewImpl::TakeHeapSnapshot(std::unique_ptr<base::Value>* snapshot) {
 Status WebViewImpl::InitProfileInternal() {
   base::DictionaryValue params;
 
-  // TODO: Remove Debugger.enable after Chrome 36 stable is released.
-  Status status_debug = client_->SendCommand("Debugger.enable", params);
-
-  if (status_debug.IsError())
-    return status_debug;
-
-  Status status_profiler = client_->SendCommand("Profiler.enable", params);
-
-  if (status_profiler.IsError()) {
-    Status status_debugger = client_->SendCommand("Debugger.disable", params);
-    if (status_debugger.IsError())
-      return status_debugger;
-
-    return status_profiler;
-  }
-
-  return Status(kOk);
+  return client_->SendCommand("Profiler.enable", params);
 }
 
 Status WebViewImpl::StopProfileInternal() {
@@ -1141,6 +1125,11 @@ void WebViewImpl::ClearNavigationState(const std::string& new_frame_id) {
 Status WebViewImpl::IsNotPendingNavigation(const std::string& frame_id,
                                            const Timeout* timeout,
                                            bool* is_not_pending) {
+  if (!frame_id.empty() && !frame_tracker_->IsKnownFrame(frame_id)) {
+    // Frame has already been destroyed.
+    *is_not_pending = true;
+    return Status(kOk);
+  }
   bool is_pending;
   Status status =
       navigation_tracker_->IsPendingNavigation(frame_id, timeout, &is_pending);
@@ -1216,16 +1205,32 @@ std::unique_ptr<base::Value> WebViewImpl::GetCastIssueMessage() {
   return std::unique_ptr<base::Value>(cast_tracker_->issue().DeepCopy());
 }
 
-WebViewImplHolder::WebViewImplHolder(WebViewImpl* web_view)
-    : web_view_(web_view), was_locked_(web_view->Lock()) {}
+WebViewImplHolder::WebViewImplHolder(WebViewImpl* web_view) {
+  // Lock input web view and all its parents, to prevent them from being
+  // deleted while still in use. Inside |items_|, each web view must appear
+  // before its parent. This ensures the destructor unlocks the web views in
+  // the right order.
+  while (web_view != nullptr) {
+    Item item;
+    item.web_view = web_view;
+    item.was_locked = web_view->Lock();
+    items_.push_back(item);
+    web_view = const_cast<WebViewImpl*>(web_view->GetParent());
+  }
+}
 
 WebViewImplHolder::~WebViewImplHolder() {
-  if (web_view_ != nullptr && !was_locked_) {
-    if (!web_view_->IsDetached())
-      web_view_->Unlock();
-    else if (web_view_->GetParent() != nullptr)
-      web_view_->GetParent()->GetFrameTracker()->DeleteTargetForFrame(
-          web_view_->GetId());
+  for (Item& item : items_) {
+    // Once we find a web view that is still locked, then all its parents must
+    // also be locked.
+    if (item.was_locked)
+      break;
+    WebViewImpl* web_view = item.web_view;
+    if (!web_view->IsDetached())
+      web_view->Unlock();
+    else if (web_view->GetParent() != nullptr)
+      web_view->GetParent()->GetFrameTracker()->DeleteTargetForFrame(
+          web_view->GetId());
   }
 }
 
@@ -1251,14 +1256,7 @@ Status EvaluateScript(DevToolsClient* client,
   if (status.IsError())
     return status;
 
-  bool was_thrown;
-  if (!cmd_result->GetBoolean("wasThrown", &was_thrown)) {
-    // As of crrev.com/411814, Runtime.evaluate no longer returns a 'wasThrown'
-    // property in the response, so check 'exceptionDetails' instead.
-    // TODO(samuong): Ignore 'wasThrown' when we stop supporting Chrome 54.
-    was_thrown = cmd_result->HasKey("exceptionDetails");
-  }
-  if (was_thrown) {
+  if (cmd_result->HasKey("exceptionDetails")) {
     std::string description = "unknown";
     cmd_result->GetString("result.description", &description);
     return Status(kUnknownError,

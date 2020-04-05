@@ -307,21 +307,26 @@ Status ChromeImpl::SetWindowBounds(
     base::PlatformThread::Sleep(base::TimeDelta::FromMilliseconds(100));
   }
 
-  params.Set("bounds", bounds->CreateDeepCopy());
-  status = devtools_websocket_client_->SendCommand("Browser.setWindowBounds",
-                                                   params);
-  if (status.IsError())
-    return status;
-
-  base::PlatformThread::Sleep(base::TimeDelta::FromMilliseconds(100));
   std::string state;
-  if (!bounds->GetString("windowState", &state))
-    return Status(kOk);
+  bounds->GetString("windowState", &state);
 
-  if (state == "fullscreen") {
+  if (state != "fullscreen" || GetBrowserInfo()->is_headless) {
+    // crbug.com/946023. When setWindowBounds is run before requestFullscreen
+    // below, we sometimes see a devtools crash. Because the latter call will
+    // set fullscreen, do not call setWindowBounds with a fullscreen request
+    // unless running headless. see https://crbug.com/1049336
+    params.Set("bounds", bounds->CreateDeepCopy());
+    status = devtools_websocket_client_->SendCommand("Browser.setWindowBounds",
+                                                     params);
+    if (status.IsError())
+      return status;
+
+    base::PlatformThread::Sleep(base::TimeDelta::FromMilliseconds(100));
+  } else {
     // Work around crbug.com/982071. This block of code is necessary to ensure
     // that document.webkitIsFullScreen and document.fullscreenElement return
     // the correct values.
+    // But do not run when headless. see https://crbug.com/1049336
     WebView* web_view;
     status = GetWebViewById(target_id, &web_view);
     if (status.IsError())
@@ -340,7 +345,7 @@ Status ChromeImpl::SetWindowBounds(
   status = GetWindowBounds(window->id, window);
   if (status.IsError())
     return status;
-  if (window->state == state)
+  if (window->state == state || state == "")
     return Status(kOk);
 
   if (state == "maximized" && window->state == "normal") {

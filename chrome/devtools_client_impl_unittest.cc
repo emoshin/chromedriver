@@ -79,6 +79,10 @@ class MockSyncWebSocket : public SyncWebSocket {
       return false;
     EXPECT_TRUE((*dict)->GetInteger("id", &id_));
     EXPECT_TRUE((*dict)->GetString("method", method));
+    // Because ConnectIfNecessary is not waiting for the response, Send can
+    // set connect_complete to true
+    if (add_script_received_ && runtime_eval_received_)
+      connect_complete_ = true;
     if (connect_complete_)
       return true;
     else if (*method == "Page.addScriptToEvaluateOnNewDocument")
@@ -686,7 +690,7 @@ TEST_F(DevToolsClientImplTest, HandleEventsUntil) {
   client.AddListener(&listener);
   ASSERT_EQ(kOk, client.ConnectIfNecessary().code());
   client.SetParserFuncForTesting(base::Bind(&ReturnEvent));
-  Status status = client.HandleEventsUntil(base::Bind(&AlwaysTrue),
+  Status status = client.HandleEventsUntil(base::BindRepeating(&AlwaysTrue),
                                            Timeout(long_timeout_));
   ASSERT_EQ(kOk, status.code());
 }
@@ -698,7 +702,7 @@ TEST_F(DevToolsClientImplTest, HandleEventsUntilTimeout) {
                             base::Bind(&CloserFunc));
   ASSERT_EQ(kOk, client.ConnectIfNecessary().code());
   client.SetParserFuncForTesting(base::Bind(&ReturnEvent));
-  Status status = client.HandleEventsUntil(base::Bind(&AlwaysTrue),
+  Status status = client.HandleEventsUntil(base::BindRepeating(&AlwaysTrue),
                                            Timeout(base::TimeDelta()));
   ASSERT_EQ(kTimeout, status.code());
 }
@@ -710,7 +714,7 @@ TEST_F(DevToolsClientImplTest, WaitForNextEventCommand) {
                             base::Bind(&CloserFunc),
                             base::Bind(&ReturnCommand));
   ASSERT_EQ(kOk, client.ConnectIfNecessary().code());
-  Status status = client.HandleEventsUntil(base::Bind(&AlwaysTrue),
+  Status status = client.HandleEventsUntil(base::BindRepeating(&AlwaysTrue),
                                            Timeout(long_timeout_));
   ASSERT_EQ(kUnknownError, status.code());
 }
@@ -722,7 +726,7 @@ TEST_F(DevToolsClientImplTest, WaitForNextEventError) {
                             base::Bind(&CloserFunc));
   ASSERT_EQ(kOk, client.ConnectIfNecessary().code());
   client.SetParserFuncForTesting(base::Bind(&ReturnError));
-  Status status = client.HandleEventsUntil(base::Bind(&AlwaysTrue),
+  Status status = client.HandleEventsUntil(base::BindRepeating(&AlwaysTrue),
                                            Timeout(long_timeout_));
   ASSERT_EQ(kUnknownError, status.code());
 }
@@ -734,7 +738,7 @@ TEST_F(DevToolsClientImplTest, WaitForNextEventConditionalFuncReturnsError) {
                             base::Bind(&CloserFunc));
   ASSERT_EQ(kOk, client.ConnectIfNecessary().code());
   client.SetParserFuncForTesting(base::Bind(&ReturnEvent));
-  Status status = client.HandleEventsUntil(base::Bind(&AlwaysError),
+  Status status = client.HandleEventsUntil(base::BindRepeating(&AlwaysError),
                                            Timeout(long_timeout_));
   ASSERT_EQ(kUnknownError, status.code());
 }

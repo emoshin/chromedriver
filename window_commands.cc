@@ -208,7 +208,7 @@ struct Cookie {
          const std::string& domain,
          const std::string& path,
          const std::string& samesite,
-         double expiry,
+         int64_t expiry,
          bool http_only,
          bool secure,
          bool session)
@@ -227,7 +227,7 @@ struct Cookie {
   std::string domain;
   std::string path;
   std::string samesite;
-  double expiry;
+  int64_t expiry;
   bool http_only;
   bool secure;
   bool session;
@@ -243,7 +243,7 @@ std::unique_ptr<base::DictionaryValue> CreateDictionaryFrom(
   if (!cookie.path.empty())
     dict->SetString("path", cookie.path);
   if (!cookie.session)
-    dict->SetDouble("expiry", cookie.expiry);
+    SetSafeInt(dict.get(), "expiry", cookie.expiry);
   dict->SetBoolean("httpOnly", cookie.http_only);
   dict->SetBoolean("secure", cookie.secure);
   if (!cookie.samesite.empty())
@@ -251,10 +251,12 @@ std::unique_ptr<base::DictionaryValue> CreateDictionaryFrom(
   return dict;
 }
 
-Status GetVisibleCookies(WebView* web_view,
+Status GetVisibleCookies(Session* session,
+                         WebView* web_view,
                          std::list<Cookie>* cookies) {
   std::string current_page_url;
-  Status status = GetUrl(web_view, std::string(), &current_page_url);
+  Status status =
+      GetUrl(web_view, session->GetCurrentFrameId(), &current_page_url);
   if (status.IsError())
     return status;
   std::unique_ptr<base::ListValue> internal_cookies;
@@ -277,10 +279,14 @@ Status GetVisibleCookies(WebView* web_view,
     cookie_dict->GetString("path", &path);
     std::string samesite = "";
     GetOptionalString(cookie_dict, "sameSite", &samesite);
-    double expiry = 0;
-    cookie_dict->GetDouble("expires", &expiry);
-    if (expiry > 1e12)
-      expiry /= 1000;  // Backwards compatibility ms -> sec.
+    int64_t expiry = 0;
+    double temp_double;
+    if (cookie_dict->GetDouble("expires", &temp_double)) {
+      // Truncate & convert the value to an integer as required by W3C spec.
+      int64_t temp_int64 = static_cast<int64_t>(temp_double);
+      if (!(temp_int64 >= (1ll << 53) || temp_int64 <= -(1ll << 53)))
+        expiry = temp_int64;
+    }
     bool http_only = false;
     cookie_dict->GetBoolean("httpOnly", &http_only);
     bool session = false;
@@ -1820,7 +1826,7 @@ Status ExecuteGetCookies(Session* session,
                          std::unique_ptr<base::Value>* value,
                          Timeout* timeout) {
   std::list<Cookie> cookies;
-  Status status = GetVisibleCookies(web_view, &cookies);
+  Status status = GetVisibleCookies(session, web_view, &cookies);
   if (status.IsError())
     return status;
   std::unique_ptr<base::ListValue> cookie_list(new base::ListValue());
@@ -1842,7 +1848,7 @@ Status ExecuteGetNamedCookie(Session* session,
     return Status(kInvalidArgument, "missing 'cookie name'");
 
   std::list<Cookie> cookies;
-  Status status = GetVisibleCookies(web_view, &cookies);
+  Status status = GetVisibleCookies(session, web_view, &cookies);
   if (status.IsError())
     return status;
 
@@ -1940,7 +1946,7 @@ Status ExecuteDeleteCookie(Session* session,
     return status;
 
   std::list<Cookie> cookies;
-  status = GetVisibleCookies(web_view, &cookies);
+  status = GetVisibleCookies(session, web_view, &cookies);
   if (status.IsError())
     return status;
 
@@ -1961,7 +1967,7 @@ Status ExecuteDeleteAllCookies(Session* session,
                                std::unique_ptr<base::Value>* value,
                                Timeout* timeout) {
   std::list<Cookie> cookies;
-  Status status = GetVisibleCookies(web_view, &cookies);
+  Status status = GetVisibleCookies(session, web_view, &cookies);
   if (status.IsError())
     return status;
 

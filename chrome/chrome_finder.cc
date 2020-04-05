@@ -109,13 +109,13 @@ void GetPathsFromEnvironment(std::vector<base::FilePath>* paths) {
 namespace internal {
 
 bool FindExe(
-    const base::Callback<bool(const base::FilePath&)>& exists_func,
+    const base::RepeatingCallback<bool(const base::FilePath&)>& exists_func,
     const std::vector<base::FilePath>& rel_paths,
     const std::vector<base::FilePath>& locations,
     base::FilePath* out_path) {
-  for (size_t i = 0; i < rel_paths.size(); ++i) {
-    for (size_t j = 0; j < locations.size(); ++j) {
-      base::FilePath path = locations[j].Append(rel_paths[i]);
+  for (auto& rel_path : rel_paths) {
+    for (auto& location : locations) {
+      base::FilePath path = location.Append(rel_path);
       if (exists_func.Run(path)) {
         *out_path = path;
         return true;
@@ -132,19 +132,19 @@ void GetApplicationDirs(std::vector<base::FilePath>* locations);
 #endif
 
 bool FindChrome(base::FilePath* browser_exe) {
-#if defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_LINUX)
   base::FilePath browser_exes_array[] = {
+#if defined(OS_WIN) || defined(OS_MACOSX)
+    base::FilePath(chrome::kBrowserProcessExecutablePath),
+    base::FilePath(chrome::kBrowserProcessExecutablePathChromium)
+#elif defined(OS_LINUX)
+    base::FilePath("google-chrome"),
     base::FilePath(chrome::kBrowserProcessExecutablePath),
     base::FilePath(chrome::kBrowserProcessExecutablePathChromium),
-#if defined(OS_LINUX)
-    base::FilePath("google-chrome"),
-    base::FilePath("chrome"),
     base::FilePath("chromium"),
     base::FilePath("chromium-browser")
-#endif
 #else
-      // it will compile but won't work on other OSes
-      base::FilePath()
+    // it will compile but won't work on other OSes
+    base::FilePath()
 #endif
   };
 
@@ -164,9 +164,6 @@ bool FindChrome(base::FilePath* browser_exe) {
   std::vector<base::FilePath> locations;
   GetApplicationDirs(&locations);
   GetPathsFromEnvironment(&locations);
-  return internal::FindExe(
-      base::Bind(&base::PathExists),
-      browser_exes,
-      locations,
-      browser_exe);
+  return internal::FindExe(base::BindRepeating(&base::PathExists), browser_exes,
+                           locations, browser_exe);
 }

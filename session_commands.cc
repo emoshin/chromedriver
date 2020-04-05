@@ -178,6 +178,10 @@ std::unique_ptr<base::DictionaryValue> CreateCapabilities(
                                          : "unexpectedAlertBehaviour",
                   session->unhandled_prompt_behavior);
 
+  // Extensions defined by the W3C.
+  // See https://w3c.github.io/webauthn/#sctn-automation-webdriver-capability
+  caps->SetBoolean("webauthn:virtualAuthenticators", !capabilities.IsAndroid());
+
   // Chrome-specific extensions.
   const std::string chromedriverVersionKey = base::StringPrintf(
       "%s.%sVersion", base::ToLowerASCII(kBrowserShortName).c_str(),
@@ -354,6 +358,8 @@ Status ConfigureSession(Session* session,
         session->w3c_compliant ? kDismissAndNotify : kIgnore;
   }
 
+  session->enable_launch_app = capabilities->enable_launch_app;
+
   session->implicit_wait = capabilities->implicit_wait_timeout;
   session->page_load_timeout = capabilities->page_load_timeout;
   session->script_timeout = capabilities->script_timeout;
@@ -417,14 +423,21 @@ bool MergeCapabilities(const base::DictionaryValue* always_match,
 // Implementation of "matching capabilities", as defined in W3C spec at
 // https://www.w3.org/TR/webdriver/#dfn-matching-capabilities.
 // It checks some requested capabilities and make sure they are supported.
-// Currently, we only check "browserName" and "platformName", but more can be
-// added as necessary.
+// Currently, we only check "browserName", "platformName", and
+// "webauthn:virtualAuthenticators" but more can be added as necessary.
 bool MatchCapabilities(const base::DictionaryValue* capabilities) {
   const base::Value* name;
   if (capabilities->Get("browserName", &name) && !name->is_none()) {
     if (!(name->is_string() && name->GetString() == kBrowserCapabilityName))
       return false;
   }
+
+  const base::DictionaryValue* chrome_options;
+  const bool has_chrome_options =
+      GetChromeOptionsDictionary(*capabilities, &chrome_options);
+
+  bool is_android = has_chrome_options &&
+                    chrome_options->FindStringKey("androidPackage") != nullptr;
 
   const base::Value* platform_name_value;
   if (capabilities->Get("platformName", &platform_name_value) &&
@@ -439,12 +452,6 @@ bool MatchCapabilities(const base::DictionaryValue* capabilities) {
       std::string actual_first_token =
         actual_platform_name.substr(0, actual_platform_name.find(' '));
 
-      const base::DictionaryValue* chrome_options;
-      const bool has_chrome_options =
-          GetChromeOptionsDictionary(*capabilities, &chrome_options);
-
-      bool is_android = has_chrome_options && chrome_options->FindStringKey(
-                                                  "androidPackage") != nullptr;
       bool is_remote = has_chrome_options && chrome_options->FindStringKey(
                                                  "debuggerAddress") != nullptr;
       if (requested_platform_name == "any" || is_remote ||
@@ -464,6 +471,16 @@ bool MatchCapabilities(const base::DictionaryValue* capabilities) {
         return false;
       }
     } else {
+      return false;
+    }
+  }
+
+  const base::Value* virtual_authenticators_value;
+  if (capabilities->Get("webauthn:virtualAuthenticators",
+                        &virtual_authenticators_value) &&
+      !virtual_authenticators_value->is_none()) {
+    if (!virtual_authenticators_value->is_bool() ||
+        (virtual_authenticators_value->GetBool() && is_android)) {
       return false;
     }
   }
@@ -619,16 +636,21 @@ Status ExecuteGetCurrentWindowHandle(Session* session,
 Status ExecuteLaunchApp(Session* session,
                         const base::DictionaryValue& params,
                         std::unique_ptr<base::Value>* value) {
+  if (!session->enable_launch_app) {
+    return Status(kUnsupportedOperation,
+                  R"(LaunchApp command has been removed. See:
+      https://blog.chromium.org/2020/01/moving-forward-from-chrome-apps.html)");
+  }
   std::string id;
   if (!params.GetString("id", &id))
     return Status(kInvalidArgument, "'id' must be a string");
 
-  ChromeDesktopImpl* desktop = NULL;
+  ChromeDesktopImpl* desktop = nullptr;
   Status status = session->chrome->GetAsDesktop(&desktop);
   if (status.IsError())
     return status;
 
-  AutomationExtension* extension = NULL;
+  AutomationExtension* extension = nullptr;
   status = desktop->GetAutomationExtension(&extension, session->w3c_compliant);
   if (status.IsError())
     return status;

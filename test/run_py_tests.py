@@ -82,8 +82,6 @@ _NEGATIVE_FILTER = [
     'ChromeDriverTest.testAlertOnNewWindow',
     # https://bugs.chromium.org/p/chromedriver/issues/detail?id=2532
     'ChromeDriverPageLoadTimeoutTest.testRefreshWithPageLoadTimeout',
-    # testFocus is failing
-    'JavaScriptTests.testFocus',
 ]
 
 
@@ -310,7 +308,7 @@ class ChromeDriverBaseTest(unittest.TestCase):
       server_url = _CHROMEDRIVER_SERVER_URL
 
     if (not _ANDROID_PACKAGE_KEY and 'debugger_address' not in kwargs and
-          '_MINIDUMP_PATH' in globals()):
+          '_MINIDUMP_PATH' in globals() and _MINIDUMP_PATH):
       # Environment required for minidump not supported on Android
       # minidumpPath will fail parsing if debugger_address is set
       if 'experimental_options' in kwargs:
@@ -2845,7 +2843,6 @@ class ChromeDriverW3cTest(ChromeDriverBaseTestWithWebServer):
           '\'<p contentEditable="true"> <i>hello-></i> '
           '<b>send_this_value </b> </p>\';'
           'var input = document.getElementsByTagName("i")[0];'
-          'input.focus();'
           'return input;')
       element.SendKeys('hello')
       self.assertEquals(u'hello->hello', element.GetText())
@@ -2860,7 +2857,7 @@ class ChromeDriverW3cTest(ChromeDriverBaseTestWithWebServer):
           'input.focus();'
           'return input;')
       element.SendKeys('hello')
-      self.assertEquals(u'hello ->hello', element.GetText())
+      self.assertEquals(u'hellohello ->', element.GetText())
 
   def testUnexpectedAlertOpenExceptionMessage(self):
     self._driver.Load(self.GetHttpUrlForFile('/chromedriver/empty.html'))
@@ -4271,7 +4268,6 @@ class JavaScriptTests(ChromeDriverBaseTestWithWebServer):
     self._driver.Load(self.GetFileUrl('is_option_element_toggleable_test.html'))
     self.checkTestResult()
 
-  def testFocus(self):
     self._driver.Load(self.GetFileUrl('focus_test.html'))
     self.checkTestResult()
 

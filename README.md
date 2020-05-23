@@ -62,6 +62,10 @@ Additional information is available on the following pages:
 * [Threading](docs/threading.md): ChromeDriver threading model.
 * [Chrome Connection](docs/chrome_connection.md):
   How ChromeDriver connects to Chrome and controls it.
+* [DevTools Event Listener](docs/event_listener.md):
+  How ChromeDriver responds to events from Chrome DevTools.
+* [Run JavaScript Code](docs/run_javascript.md):
+  How ChromeDriver sends JavaScript code to Chrome for execution.
 
 ## Code structure (relative to this file)
 
@@ -93,35 +97,8 @@ Integration tests.
 
 ## Testing
 
-There are several test suites for verifying ChromeDriver's correctness:
-
-### chromedriver_unittests
-
-This is the unittest target, which runs on the commit queue on win/mac/linux.
-Tests should take a few milliseconds and be very stable.
-
-```
-ninja -C out/Default chromedriver_unittests
-out/Default/chromedriver_unittests
-```
-
-### python integration tests (`test/run_py_tests.py`)
-
-These tests are maintained by the ChromeDriver team, and are intended to verify
-that ChromeDriver works correctly with Chrome. Run test/run_py_tests.py --help
-for more info. These are run on the commit queue on win/mac/linux.
-
-```
-ninja -C out/Default chrome chromedriver
-<THIS_DIR>/test/run_py_tests.py --chromedriver=out/Default/chromedriver
-```
-
-### WebDriver Java acceptance tests (`test/run_java_tests.py`)
-
-These are integration tests from the WebDriver open source project which can
-be run via test/run_java_tests.py. They are not currently run on any bots, but
-will be included in the commit queue in the future. Run with --help for more
-info.
+There are several test suites for verifying ChromeDriver's correctness.
+For details, see the [testing page](docs/testing.md).
 
 ## Contributing
 

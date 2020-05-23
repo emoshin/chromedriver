@@ -73,6 +73,7 @@ Status StubWebView::TraverseHistory(int delta, const Timeout* timeout) {
 
 Status StubWebView::EvaluateScript(const std::string& frame,
                                    const std::string& function,
+                                   const bool awaitPromise,
                                    std::unique_ptr<base::Value>* result) {
   return Status(kOk);
 }
@@ -116,7 +117,7 @@ Status StubWebView::GetFrameByFunction(const std::string& frame,
   return Status(kOk);
 }
 
-Status StubWebView::DispatchMouseEvents(const std::list<MouseEvent>& events,
+Status StubWebView::DispatchMouseEvents(const std::vector<MouseEvent>& events,
                                         const std::string& frame,
                                         bool async_dispatch_events) {
   return Status(kOk);
@@ -127,18 +128,18 @@ Status StubWebView::DispatchTouchEvent(const TouchEvent& event,
   return Status(kOk);
 }
 
-Status StubWebView::DispatchTouchEvents(const std::list<TouchEvent>& events,
+Status StubWebView::DispatchTouchEvents(const std::vector<TouchEvent>& events,
                                         bool async_dispatch_events) {
   return Status(kOk);
 }
 
 Status StubWebView::DispatchTouchEventWithMultiPoints(
-    const std::list<TouchEvent>& events,
+    const std::vector<TouchEvent>& events,
     bool async_dispatch_events) {
   return Status(kOk);
 }
 
-Status StubWebView::DispatchKeyEvents(const std::list<KeyEvent>& events,
+Status StubWebView::DispatchKeyEvents(const std::vector<KeyEvent>& events,
                                       bool async_dispatch_events) {
   return Status(kOk);
 }
@@ -173,8 +174,7 @@ Status StubWebView::WaitForPendingNavigations(const std::string& frame_id,
   return Status(kOk);
 }
 
-Status StubWebView::IsPendingNavigation(const std::string& frame_id,
-                                        const Timeout* timeout,
+Status StubWebView::IsPendingNavigation(const Timeout* timeout,
                                         bool* is_pending) const {
   return Status(kOk);
 }
@@ -256,4 +256,4 @@ std::unique_ptr<base::Value> StubWebView::GetCastIssueMessage() {
   return std::make_unique<base::Value>();
 }
 
-void StubWebView::ClearNavigationState(const std::string& new_frame_id) {}
+void StubWebView::SetFrame(const std::string& new_frame_id) {}

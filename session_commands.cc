@@ -58,7 +58,9 @@ const int k3GThroughput = 750 * 1024;
 const int k2GLatency = 300;
 const int k2GThroughput = 250 * 1024;
 
-Status EvaluateScriptAndIgnoreResult(Session* session, std::string expression) {
+Status EvaluateScriptAndIgnoreResult(Session* session,
+                                     std::string expression,
+                                     const bool awaitPromise = false) {
   WebView* web_view = nullptr;
   Status status = session->GetTargetWindow(&web_view);
   if (status.IsError())
@@ -73,7 +75,7 @@ Status EvaluateScriptAndIgnoreResult(Session* session, std::string expression) {
   }
   std::string frame_id = session->GetCurrentFrameId();
   std::unique_ptr<base::Value> result;
-  return web_view->EvaluateScript(frame_id, expression, &result);
+  return web_view->EvaluateScript(frame_id, expression, awaitPromise, &result);
 }
 
 }  // namespace
@@ -967,8 +969,7 @@ Status ExecuteIsLoading(Session* session,
     return status;
 
   bool is_pending;
-  status = web_view->IsPendingNavigation(
-      session->GetCurrentFrameId(), nullptr, &is_pending);
+  status = web_view->IsPendingNavigation(nullptr, &is_pending);
   if (status.IsError())
     return status;
   value->reset(new base::Value(is_pending));

@@ -46,7 +46,6 @@
 #include "chrome/test/chromedriver/chrome/devtools_client_impl.h"
 #include "chrome/test/chromedriver/chrome/devtools_event_listener.h"
 #include "chrome/test/chromedriver/chrome/devtools_http_client.h"
-#include "chrome/test/chromedriver/chrome/embedded_automation_extension.h"
 #include "chrome/test/chromedriver/chrome/status.h"
 #include "chrome/test/chromedriver/chrome/user_data_dir.h"
 #include "chrome/test/chromedriver/chrome/web_view.h"
@@ -66,6 +65,7 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <unistd.h>
 #elif defined(OS_WIN)
 #include "chrome/test/chromedriver/keycode_text_conversion.h"
 #endif
@@ -104,27 +104,6 @@ const char* const kAndroidSwitches[] = {
 const char kEnableCrashReport[] = "enable-crash-reporter-for-testing";
 const base::FilePath::CharType kDevToolsActivePort[] =
     FILE_PATH_LITERAL("DevToolsActivePort");
-
-Status UnpackAutomationExtension(const base::FilePath& temp_dir,
-                                 base::FilePath* automation_extension) {
-  std::string decoded_extension;
-  if (!base::Base64Decode(kAutomationExtension, &decoded_extension))
-    return Status(kUnknownError, "failed to base64decode automation extension");
-
-  base::FilePath extension_zip = temp_dir.AppendASCII("internal.zip");
-  int size = static_cast<int>(decoded_extension.length());
-  if (base::WriteFile(extension_zip, decoded_extension.c_str(), size)
-      != size) {
-    return Status(kUnknownError, "failed to write automation extension zip");
-  }
-
-  base::FilePath extension_dir = temp_dir.AppendASCII("internal");
-  if (!zip::Unzip(extension_zip, extension_dir))
-    return Status(kUnknownError, "failed to unzip automation extension");
-
-  *automation_extension = extension_dir;
-  return Status(kOk);
-}
 
 Status PrepareDesktopCommandLine(const Capabilities& capabilities,
                                  base::CommandLine* prepared_command,
@@ -197,9 +176,9 @@ Status PrepareDesktopCommandLine(const Capabilities& capabilities,
       return Status(kUnknownError,
                     "cannot create temp dir for unpacking extensions");
     }
-    status = internal::ProcessExtensions(
-        capabilities.extensions, extension_dir->GetPath(),
-        capabilities.use_automation_extension, &switches, extension_bg_pages);
+    status = internal::ProcessExtensions(capabilities.extensions,
+                                         extension_dir->GetPath(), &switches,
+                                         extension_bg_pages);
     if (status.IsError())
       return status;
   }
@@ -461,6 +440,7 @@ Status LaunchDesktopChrome(network::mojom::URLLoaderFactory* factory,
   base::ScopedFD devnull;
   const base::CommandLine* cmd_line = base::CommandLine::ForCurrentProcess();
   if (!cmd_line->HasSwitch("verbose") &&
+      !cmd_line->HasSwitch("enable-chrome-logs") &&
       cmd_line->GetSwitchValueASCII("log-level") != "ALL") {
     // Redirect stderr to /dev/null, so that Chrome log spew doesn't confuse
     // users.
@@ -749,6 +729,33 @@ Status LaunchReplayChrome(network::mojom::URLLoaderFactory* factory,
 
 }  // namespace
 
+Status PipeSetUp(base::LaunchOptions* options, int* write_fd, int* read_fd) {
+#if defined(OS_POSIX)
+
+  int chrome_to_driver_pipe_fds[2];
+  int driver_to_chrome_pipe_fds[2];
+
+  if (pipe(chrome_to_driver_pipe_fds) == -1 ||
+      pipe(driver_to_chrome_pipe_fds) == -1)
+    return Status(kUnknownError, "cannot set up pipe");
+
+  // Numbers 3 & 4 come from kReadDf and kWriteFD in
+  // content/browser/devtools/devtools_pipe_handler.cc
+  options->fds_to_remap.emplace_back(driver_to_chrome_pipe_fds[0], 3);
+  options->fds_to_remap.emplace_back(chrome_to_driver_pipe_fds[1], 4);
+
+  close(driver_to_chrome_pipe_fds[0]);
+  close(chrome_to_driver_pipe_fds[1]);
+
+  *write_fd = driver_to_chrome_pipe_fds[1];
+  *read_fd = chrome_to_driver_pipe_fds[0];
+
+  return Status(kOk);
+#endif
+
+  return Status(kUnknownError, "feature not supported");
+}
+
 Status LaunchChrome(network::mojom::URLLoaderFactory* factory,
                     const SyncWebSocketFactory& socket_factory,
                     DeviceManager* device_manager,
@@ -954,7 +961,6 @@ void UpdateExtensionSwitch(Switches* switches,
 
 Status ProcessExtensions(const std::vector<std::string>& extensions,
                          const base::FilePath& temp_dir,
-                         bool include_automation_extension,
                          Switches* switches,
                          std::vector<std::string>* bg_pages) {
   std::vector<std::string> bg_pages_tmp;
@@ -972,19 +978,6 @@ Status ProcessExtensions(const std::vector<std::string>& extensions,
     extension_paths.push_back(path.value());
     if (bg_page.length())
       bg_pages_tmp.push_back(bg_page);
-  }
-
-  if (include_automation_extension) {
-    base::FilePath automation_extension;
-    Status status = UnpackAutomationExtension(temp_dir, &automation_extension);
-    if (status.IsError())
-      return status;
-    if (switches->HasSwitch("disable-extensions")) {
-      UpdateExtensionSwitch(switches, "disable-extensions-except",
-                            automation_extension.value());
-    } else {
-      extension_paths.push_back(automation_extension.value());
-    }
   }
 
   if (extension_paths.size()) {
@@ -1103,7 +1096,7 @@ Status ParseDevToolsActivePortFile(const base::FilePath& user_data_dir,
 Status RemoveOldDevToolsActivePortFile(const base::FilePath& user_data_dir) {
   base::FilePath port_filepath = user_data_dir.Append(kDevToolsActivePort);
   // Note that calling DeleteFile on a path that doesn't exist returns True.
-  if (base::DeleteFile(port_filepath, false)) {
+  if (base::DeleteFile(port_filepath)) {
     return Status(kOk);
   }
   return Status(

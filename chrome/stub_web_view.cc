@@ -24,6 +24,10 @@ Status StubWebView::ConnectIfNecessary() {
   return Status(kOk);
 }
 
+Status StubWebView::SetUpDevTools() {
+  return Status(kOk);
+}
+
 Status StubWebView::HandleReceivedEvents() {
   return Status(kOk);
 }
@@ -180,7 +184,12 @@ Status StubWebView::IsPendingNavigation(const Timeout* timeout,
 }
 
 JavaScriptDialogManager* StubWebView::GetJavaScriptDialogManager() {
-  return NULL;
+  return nullptr;
+}
+
+MobileEmulationOverrideManager* StubWebView::GetMobileEmulationOverrideManager()
+    const {
+  return nullptr;
 }
 
 Status StubWebView::OverrideGeolocation(const Geoposition& geoposition) {
@@ -200,6 +209,11 @@ Status StubWebView::OverrideDownloadDirectoryIfNeeded(
 Status StubWebView::CaptureScreenshot(
     std::string* screenshot,
     const base::DictionaryValue& params) {
+  return Status(kOk);
+}
+
+Status StubWebView::PrintToPDF(const base::DictionaryValue& params,
+                               std::string* pdf) {
   return Status(kOk);
 }
 

@@ -11,6 +11,7 @@
 #include <utility>
 
 #include "base/callback.h"
+#include "base/logging.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
@@ -20,7 +21,6 @@
 #include "base/time/time.h"
 #include "base/values.h"
 #include "chrome/test/chromedriver/basic_types.h"
-#include "chrome/test/chromedriver/chrome/automation_extension.h"
 #include "chrome/test/chromedriver/chrome/browser_info.h"
 #include "chrome/test/chromedriver/chrome/chrome.h"
 #include "chrome/test/chromedriver/chrome/chrome_desktop_impl.h"
@@ -28,6 +28,7 @@
 #include "chrome/test/chromedriver/chrome/geoposition.h"
 #include "chrome/test/chromedriver/chrome/javascript_dialog_manager.h"
 #include "chrome/test/chromedriver/chrome/js.h"
+#include "chrome/test/chromedriver/chrome/mobile_emulation_override_manager.h"
 #include "chrome/test/chromedriver/chrome/network_conditions.h"
 #include "chrome/test/chromedriver/chrome/status.h"
 #include "chrome/test/chromedriver/chrome/ui_events.h"
@@ -55,7 +56,8 @@ const char kDeprecatedUnreachableWebDataURL[] = "data:text/html,chromewebdata";
 // Match to content/browser/devtools/devTools_session const of same name
 const char kTargetClosedMessage[] = "Inspected target navigated or closed";
 
-// TODO(johnchen@chromium.org): Remove when we stop supporting legacy protocol.
+// TODO(crbug.com/chromedriver/2596): Remove when we stop supporting legacy
+// protocol.
 // Defaults to 20 years into the future when adding a cookie.
 const double kDefaultCookieExpiryTime = 20*365*24*60*60;
 
@@ -112,6 +114,8 @@ MouseEventType StringToMouseEventType(std::string action_type) {
     return kReleasedMouseEventType;
   else if (action_type == "pointerMove")
     return kMovedMouseEventType;
+  else if (action_type == "scroll")
+    return kWheelMouseEventType;
   else if (action_type == "pause")
     return kPauseMouseEventType;
   else
@@ -439,6 +443,175 @@ bool IsRepeatedClickEvent(float x,
   return true;
 }
 
+const char kLandscape[] = "landscape";
+const char kPortrait[] = "portrait";
+
+Status ParseOrientation(const base::DictionaryValue& params,
+                        std::string* orientation) {
+  bool has_value;
+  if (!GetOptionalString(&params, "orientation", orientation, &has_value)) {
+    return Status(kInvalidArgument, "'orientation' must be a string");
+  }
+
+  if (!has_value) {
+    *orientation = kPortrait;
+  } else if (*orientation != kPortrait && *orientation != kLandscape) {
+    return Status(kInvalidArgument, "'orientation' must be '" +
+                                        std::string(kPortrait) + "' or '" +
+                                        std::string(kLandscape) + "'");
+  }
+  return Status(kOk);
+}
+
+Status ParseScale(const base::DictionaryValue& params, double* scale) {
+  bool has_value;
+  if (!GetOptionalDouble(&params, "scale", scale, &has_value)) {
+    return Status(kInvalidArgument, "'scale' must be a double");
+  }
+
+  if (!has_value) {
+    *scale = 1;
+  } else if (*scale < 0.1 || *scale > 2) {
+    return Status(kInvalidArgument, "'scale' must not be < 0.1 or > 2");
+  }
+  return Status(kOk);
+}
+
+Status ParseBoolean(const base::DictionaryValue& params,
+                    const std::string& name,
+                    bool default_value,
+                    bool* b) {
+  *b = default_value;
+  if (!GetOptionalBool(&params, name, b)) {
+    return Status(kInvalidArgument, "'" + name + "' must be a boolean");
+  }
+  return Status(kOk);
+}
+
+Status GetNonNegativeDouble(const base::DictionaryValue* dict,
+                            const std::string& parent,
+                            const std::string& child,
+                            double* attribute) {
+  bool has_value;
+  std::string attributeStr = "'" + parent + "." + child + "'";
+  if (!GetOptionalDouble(dict, child, attribute, &has_value)) {
+    return Status(kInvalidArgument, attributeStr + " must be a double");
+  }
+
+  if (has_value) {
+    *attribute = ConvertCentimeterToInch(*attribute);
+    if (*attribute < 0) {
+      return Status(kInvalidArgument,
+                    attributeStr + " must not be less than 0");
+    }
+  }
+  return Status(kOk);
+}
+
+struct Page {
+  double width;
+  double height;
+};
+
+Status ParsePage(const base::DictionaryValue& params, Page* page) {
+  bool has_value;
+  const base::DictionaryValue* page_dict;
+  if (!GetOptionalDictionary(&params, "page", &page_dict, &has_value)) {
+    return Status(kInvalidArgument, "'page' must be an object");
+  }
+  page->width = ConvertCentimeterToInch(21.59);
+  page->height = ConvertCentimeterToInch(27.94);
+  if (!has_value)
+    return Status(kOk);
+
+  Status status =
+      GetNonNegativeDouble(page_dict, "page", "width", &page->width);
+  if (status.IsError())
+    return status;
+
+  status = GetNonNegativeDouble(page_dict, "page", "height", &page->height);
+  if (status.IsError())
+    return status;
+
+  return Status(kOk);
+}
+
+struct Margin {
+  double top;
+  double bottom;
+  double left;
+  double right;
+};
+
+Status ParseMargin(const base::DictionaryValue& params, Margin* margin) {
+  bool has_value;
+  const base::DictionaryValue* margin_dict;
+  if (!GetOptionalDictionary(&params, "margin", &margin_dict, &has_value)) {
+    return Status(kInvalidArgument, "'margin' must be an object");
+  }
+
+  margin->top = ConvertCentimeterToInch(1.0);
+  margin->bottom = ConvertCentimeterToInch(1.0);
+  margin->left = ConvertCentimeterToInch(1.0);
+  margin->right = ConvertCentimeterToInch(1.0);
+
+  if (!has_value)
+    return Status(kOk);
+
+  Status status =
+      GetNonNegativeDouble(margin_dict, "margin", "top", &margin->top);
+  if (status.IsError())
+    return status;
+
+  status =
+      GetNonNegativeDouble(margin_dict, "margin", "bottom", &margin->bottom);
+  if (status.IsError())
+    return status;
+
+  status = GetNonNegativeDouble(margin_dict, "margin", "left", &margin->left);
+  if (status.IsError())
+    return status;
+
+  status = GetNonNegativeDouble(margin_dict, "margin", "right", &margin->right);
+  if (status.IsError())
+    return status;
+
+  return Status(kOk);
+}
+
+Status ParsePageRanges(const base::DictionaryValue& params,
+                       std::string* pageRanges) {
+  bool has_value;
+  const base::ListValue* page_range_list = nullptr;
+  if (!GetOptionalList(&params, "pageRanges", &page_range_list, &has_value)) {
+    return Status(kInvalidArgument, "'pageRanges' must be an array");
+  }
+
+  if (!has_value) {
+    return Status(kOk);
+  }
+
+  std::vector<std::string> ranges;
+  int page;
+  std::string pages_str;
+  for (const base::Value& page_range : *page_range_list) {
+    if (page_range.GetAsInteger(&page)) {
+      if (page < 0) {
+        return Status(kInvalidArgument,
+                      "a Number entry in 'pageRanges' must not be less than 0");
+      }
+      ranges.push_back(base::NumberToString(page));
+    } else if (page_range.GetAsString(&pages_str)) {
+      ranges.push_back(pages_str);
+    } else {
+      return Status(kInvalidArgument,
+                    "an entry in 'pageRanges' must be a Number or String");
+    }
+  }
+
+  *pageRanges = base::JoinString(ranges, ",");
+  return Status(kOk);
+}
 }  // namespace
 
 Status ExecuteWindowCommand(const WindowCommand& command,
@@ -1040,10 +1213,11 @@ Status ProcessInputActionSequence(
   const base::DictionaryValue* parameters;
   std::string pointer_type;
   if (!action_sequence->GetString("type", &type) ||
-      ((type != "key") && (type != "pointer") && (type != "none"))) {
-    return Status(
-        kInvalidArgument,
-        "'type' must be one of the strings 'key', 'pointer' or 'none'");
+      ((type != "key") && (type != "pointer") && (type != "wheel") &&
+       (type != "none"))) {
+    return Status(kInvalidArgument,
+                  "'type' must be one of the strings 'key', 'pointer', 'wheel' "
+                  "or 'none'");
   }
 
   if (!action_sequence->GetString("id", &id))
@@ -1185,18 +1359,29 @@ Status ProcessInputActionSequence(
                         "'value' must be a single Unicode code point");
         action->SetString("value", key);
       }
-    } else if (type == "pointer") {
-      action->SetString("pointerType", pointer_type);
+    } else if (type == "pointer" || type == "wheel") {
       std::string subtype;
-      if (!action_item->GetString("type", &subtype) ||
-          (subtype != "pointerUp" && subtype != "pointerDown" &&
-           subtype != "pointerMove" && subtype != "pointerCancel" &&
-           subtype != "pause"))
-        return Status(kInvalidArgument,
-                      "type of action must be the string 'pointerUp', "
-                      "'pointerDown', 'pointerMove' or 'pause'");
+      if (type == "pointer") {
+        if (!action_item->GetString("type", &subtype) ||
+            (subtype != "pointerUp" && subtype != "pointerDown" &&
+             subtype != "pointerMove" && subtype != "pointerCancel" &&
+             subtype != "pause")) {
+          return Status(kInvalidArgument,
+                        "type of pointer action must be the string "
+                        "'pointerUp', 'pointerDown', 'pointerMove' or "
+                        "'pause'");
+        }
+      } else {
+        if (!action_item->GetString("type", &subtype) ||
+            (subtype != "scroll" && subtype != "pause")) {
+          return Status(
+              kInvalidArgument,
+              "type of action must be the string 'scroll' or 'pause'");
+        }
+      }
 
       action->SetString("subtype", subtype);
+      action->SetString("pointerType", pointer_type);
 
       if (subtype == "pointerDown" || subtype == "pointerUp") {
         if (pointer_type == "mouse" || pointer_type == "pen") {
@@ -1213,7 +1398,7 @@ Status ProcessInputActionSequence(
             return status;
           action->SetString("button", button_str);
         }
-      } else if (subtype == "pointerMove") {
+      } else if (subtype == "pointerMove" || subtype == "scroll") {
         int x;
         if (!action_item->GetInteger("x", &x))
           return Status(kInvalidArgument, "'x' must be an int");
@@ -1251,6 +1436,17 @@ Status ProcessInputActionSequence(
         Status status = ProcessPauseAction(action_item, action.get());
         if (status.IsError())
           return status;
+
+        if (subtype == "scroll") {
+          int delta_x;
+          if (!action_item->GetInteger("deltaX", &delta_x))
+            return Status(kInvalidArgument, "'delta x' must be an int");
+          int delta_y;
+          if (!action_item->GetInteger("deltaY", &delta_y))
+            return Status(kInvalidArgument, "'delta y' must be an int");
+          action->SetInteger("deltaX", delta_x);
+          action->SetInteger("deltaY", delta_y);
+        }
       } else if (subtype == "pause") {
         Status status = ProcessPauseAction(action_item, action.get());
         if (status.IsError())
@@ -1352,7 +1548,7 @@ Status ExecutePerformActions(Session* session,
           pointer_id_set.insert(id);
           action_input_states.push_back(input_state);
 
-          if (type == "pointer") {
+          if (type == "pointer" || type == "wheel") {
             Status status = WindowViewportSize(
                 session, web_view, &viewport_width, &viewport_height);
             if (status.IsError())
@@ -1412,13 +1608,11 @@ Status ExecutePerformActions(Session* session,
                   return status;
               }
             }
-          } else if (type == "pointer") {
-            std::string pointer_type;
-            action->GetString("pointerType", &pointer_type);
+          } else if (type == "pointer" || type == "wheel") {
             double x = 0, y = 0;
             OriginType origin = kViewPort;
             std::string element_id;
-            if (action_type == "pointerMove") {
+            if (action_type == "pointerMove" || action_type == "scroll") {
               action->GetDouble("x", &x);
               action->GetDouble("y", &y);
               const base::DictionaryValue* origin_dict;
@@ -1453,8 +1647,34 @@ Status ExecutePerformActions(Session* session,
               duration = 0;
               GetOptionalInt(action, "duration", &duration);
               tick_duration = std::max(tick_duration, duration);
+
+              if (action_type == "scroll") {
+                int delta_x = 0, delta_y = 0;
+                action->GetInteger("deltaX", &delta_x);
+                action->GetInteger("deltaY", &delta_y);
+                std::vector<MouseEvent> dispatch_wheel_events;
+                MouseEvent event(StringToMouseEventType(action_type),
+                                 StringToMouseButton(button_type[id]),
+                                 action_locations[id].x(),
+                                 action_locations[id].y(), 0, buttons[id], 0);
+                event.modifiers = session->sticky_modifiers;
+                event.delta_x = delta_x;
+                event.delta_y = delta_y;
+                buttons[id] |= StringToModifierMouseButton(button_type[id]);
+                session->mouse_position = WebPoint(event.x, event.y);
+                session->input_cancel_list.emplace_back(
+                    action_input_states[j], &event, nullptr, nullptr);
+                dispatch_wheel_events.push_back(event);
+                Status status = web_view->DispatchMouseEvents(
+                    dispatch_wheel_events, session->GetCurrentFrameId(),
+                    async_dispatch_event);
+                if (status.IsError())
+                  return status;
+              }
             }
 
+            std::string pointer_type;
+            action->GetString("pointerType", &pointer_type);
             if (pointer_type == "mouse" || pointer_type == "pen") {
               if (action_type != "pause") {
                 std::vector<MouseEvent> dispatch_mouse_events;
@@ -1667,26 +1887,6 @@ Status ExecuteSendKeysToActiveElement(Session* session,
       web_view, key_list, false, &session->sticky_modifiers);
 }
 
-// TODO: Remove, applicationCache.status is deprecated in chrome
-Status ExecuteGetAppCacheStatus(Session* session,
-                                WebView* web_view,
-                                const base::DictionaryValue& params,
-                                std::unique_ptr<base::Value>* value,
-                                Timeout* timeout) {
-  return web_view->EvaluateScript(session->GetCurrentFrameId(),
-                                  "applicationCache.status", false, value);
-}
-
-// TODO: Remove, not used
-Status ExecuteIsBrowserOnline(Session* session,
-                              WebView* web_view,
-                              const base::DictionaryValue& params,
-                              std::unique_ptr<base::Value>* value,
-                              Timeout* timeout) {
-  return web_view->EvaluateScript(session->GetCurrentFrameId(),
-                                  "navigator.onLine", false, value);
-}
-
 Status ExecuteGetStorageItem(const char* storage,
                              Session* session,
                              WebView* web_view,
@@ -1811,6 +2011,153 @@ Status ExecuteScreenshot(Session* session,
     return status;
 
   value->reset(new base::Value(screenshot));
+  return Status(kOk);
+}
+
+Status ExecuteFullPageScreenshot(Session* session,
+                                 WebView* web_view,
+                                 const base::DictionaryValue& params,
+                                 std::unique_ptr<base::Value>* value,
+                                 Timeout* timeout) {
+  Status status = session->chrome->ActivateWebView(web_view->GetId());
+  if (status.IsError())
+    return status;
+
+  std::unique_ptr<base::Value> layoutMetrics;
+  status = web_view->SendCommandAndGetResult(
+      "Page.getLayoutMetrics", base::DictionaryValue(), &layoutMetrics);
+  if (status.IsError())
+    return status;
+
+  const auto width = layoutMetrics->FindDoublePath("contentSize.width");
+  if (!width.has_value())
+    return Status(kUnknownError, "invalid width type");
+  int w = ceil(width.value());
+  if (w == 0)
+    return Status(kUnknownError, "invalid width 0");
+
+  const auto height = layoutMetrics->FindDoublePath("contentSize.height");
+  if (!height.has_value())
+    return Status(kUnknownError, "invalid height type");
+  int h = ceil(height.value());
+  if (h == 0)
+    return Status(kUnknownError, "invalid height 0");
+
+  auto* meom = web_view->GetMobileEmulationOverrideManager();
+  bool hasOverrideMetrics = meom->HasOverrideMetrics();
+
+  base::DictionaryValue deviceMetrics;
+  deviceMetrics.SetInteger("width", w);
+  deviceMetrics.SetInteger("height", h);
+  if (hasOverrideMetrics) {
+    const auto* dm = meom->GetDeviceMetrics();
+    deviceMetrics.SetInteger("deviceScaleFactor", dm->device_scale_factor);
+    deviceMetrics.SetBoolean("mobile", dm->mobile);
+  } else {
+    deviceMetrics.SetInteger("deviceScaleFactor", 1);
+    deviceMetrics.SetBoolean("mobile", false);
+  }
+  std::unique_ptr<base::Value> ignore;
+  status = web_view->SendCommandAndGetResult(
+      "Emulation.setDeviceMetricsOverride", deviceMetrics, &ignore);
+  if (status.IsError())
+    return status;
+
+  std::string screenshot;
+  // No need to supply clip as it would be default to the device metrics
+  // parameters
+  status = web_view->CaptureScreenshot(&screenshot, base::DictionaryValue());
+  if (status.IsError()) {
+    if (status.code() == kUnexpectedAlertOpen) {
+      LOG(WARNING) << status.message() << ", cancelling screenshot";
+      // we can't take screenshot in this state
+      // but we must return kUnexpectedAlertOpen_Keep instead
+      // see https://crbug.com/chromedriver/2117
+      return Status(kUnexpectedAlertOpen_Keep);
+    }
+    LOG(WARNING) << "screenshot failed, retrying " << status.message();
+    status = web_view->CaptureScreenshot(&screenshot, base::DictionaryValue());
+  }
+  if (status.IsError())
+    return status;
+
+  *value = std::make_unique<base::Value>(screenshot);
+
+  // Check if there is already deviceMetricsOverride in use,
+  // if so, restore to that instead
+  if (hasOverrideMetrics) {
+    status = meom->RestoreOverrideMetrics();
+  } else {
+    // The scroll bar disappear after setting device metrics to fullpage
+    // width and height, this is to clear device metrics and restore
+    // scroll bars
+    status = web_view->SendCommandAndGetResult(
+        "Emulation.clearDeviceMetricsOverride", base::DictionaryValue(),
+        &ignore);
+  }
+  return status;
+}
+
+Status ExecutePrint(Session* session,
+                    WebView* web_view,
+                    const base::DictionaryValue& params,
+                    std::unique_ptr<base::Value>* value,
+                    Timeout* timeout) {
+  std::string orientation;
+  Status status = ParseOrientation(params, &orientation);
+  if (status.IsError())
+    return status;
+
+  double scale;
+  status = ParseScale(params, &scale);
+  if (status.IsError())
+    return status;
+
+  bool background;
+  status = ParseBoolean(params, "background", false, &background);
+  if (status.IsError())
+    return status;
+
+  Page page;
+  status = ParsePage(params, &page);
+  if (status.IsError())
+    return status;
+
+  Margin margin;
+  status = ParseMargin(params, &margin);
+  if (status.IsError())
+    return status;
+
+  bool shrinkToFit;
+  status = ParseBoolean(params, "shrinkToFit", true, &shrinkToFit);
+  if (status.IsError())
+    return status;
+
+  std::string pageRanges;
+  status = ParsePageRanges(params, &pageRanges);
+  if (status.IsError())
+    return status;
+
+  base::DictionaryValue printParams;
+  printParams.SetBoolean(kLandscape, orientation == kLandscape);
+  printParams.SetDouble("scale", scale);
+  printParams.SetBoolean("printBackground", background);
+  printParams.SetDouble("paperWidth", page.width);
+  printParams.SetDouble("paperHeight", page.height);
+  printParams.SetDouble("marginTop", margin.top);
+  printParams.SetDouble("marginBottom", margin.bottom);
+  printParams.SetDouble("marginLeft", margin.left);
+  printParams.SetDouble("marginRight", margin.right);
+  printParams.SetBoolean("preferCSSPageSize", !shrinkToFit);
+  printParams.SetString("pageRanges", pageRanges);
+  printParams.SetString("transferMode", "ReturnAsBase64");
+
+  std::string pdf;
+  status = web_view->PrintToPDF(printParams, &pdf);
+  if (status.IsError())
+    return status;
+
+  *value = std::make_unique<base::Value>(pdf);
   return Status(kOk);
 }
 

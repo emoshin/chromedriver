@@ -339,7 +339,7 @@ DevToolsClientImpl::ResponseInfo::ResponseInfo(const std::string& method)
 
 DevToolsClientImpl::ResponseInfo::~ResponseInfo() {}
 
-DevToolsClientImpl* DevToolsClientImpl::GetRootClient() {
+DevToolsClient* DevToolsClientImpl::GetRootClient() {
   return parent_ ? parent_ : this;
 }
 
@@ -370,7 +370,8 @@ Status DevToolsClientImpl::SendCommandInternal(
     VLOG(1) << "DevTools WebSocket Command: " << method << " (id=" << command_id
             << ") " << id_ << " " << FormatValueForDisplay(params);
   }
-  SyncWebSocket* socket = GetRootClient()->socket_.get();
+  SyncWebSocket* socket =
+      static_cast<DevToolsClientImpl*>(GetRootClient())->socket_.get();
   if (!socket->Send(message)) {
     return Status(kDisconnected, "unable to send message to renderer");
   }
@@ -629,9 +630,8 @@ Status DevToolsClientImpl::EnsureListenersNotifiedOfCommandResponse() {
         unnotified_cmd_response_listeners_.front();
     unnotified_cmd_response_listeners_.pop_front();
     Status status = listener->OnCommandSuccess(
-        this,
-        unnotified_cmd_response_info_->method,
-        *unnotified_cmd_response_info_->response.result.get(),
+        this, unnotified_cmd_response_info_->method,
+        unnotified_cmd_response_info_->response.result.get(),
         unnotified_cmd_response_info_->command_timeout);
     if (status.IsError())
       return status;

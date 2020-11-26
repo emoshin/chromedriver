@@ -98,6 +98,14 @@ const char* const kDesktopSwitches[] = {
     "no-service-autorun",
 };
 
+#if defined(OS_WIN)
+
+const char* const kWindowsDesktopSwitches[] = {
+    "disable-backgrounding-occluded-windows",
+};
+
+#endif
+
 const char* const kAndroidSwitches[] = {
     "disable-fre", "enable-remote-debugging",
 };
@@ -141,6 +149,10 @@ Status PrepareDesktopCommandLine(const Capabilities& capabilities,
     switches.SetUnparsedSwitch(common_switch);
   for (auto* desktop_switch : kDesktopSwitches)
     switches.SetUnparsedSwitch(desktop_switch);
+#if defined(OS_WIN)
+  for (auto* win_desktop_switch : kWindowsDesktopSwitches)
+    switches.SetUnparsedSwitch(win_desktop_switch);
+#endif
 
   // Chrome logs are normally sent to a file (whose location can be controlled
   // via the logPath capability). We expose a flag, --enable-chrome-logs, that
@@ -1177,7 +1189,7 @@ std::string GetTerminationReason(base::TerminationStatus status) {
     case base::TERMINATION_STATUS_ABNORMAL_TERMINATION:
       return "exited abnormally";
     case base::TERMINATION_STATUS_PROCESS_WAS_KILLED:
-#if defined(OS_CHROMEOS) || BUILDFLAG(IS_LACROS)
+#if BUILDFLAG(IS_CHROMEOS_ASH) || BUILDFLAG(IS_CHROMEOS_LACROS)
     case base::TERMINATION_STATUS_PROCESS_WAS_KILLED_BY_OOM:
 #endif
     case base::TERMINATION_STATUS_OOM:
